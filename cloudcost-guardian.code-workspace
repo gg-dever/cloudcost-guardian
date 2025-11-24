@@ -1,0 +1,202 @@
+{
+  "folders": [
+    {
+      "name": "🏠 CloudCost Guardian (Root)",
+      "path": "."
+    },
+    {
+      "name": "⚡ Lambda Functions",
+      "path": "src"
+    },
+    {
+      "name": "🏗️ Infrastructure (Terraform)",
+      "path": "terraform"
+    },
+    {
+      "name": "🧪 Tests",
+      "path": "tests"
+    },
+    {
+      "name": "📚 Documentation",
+      "path": "docs"
+    },
+    {
+      "name": "🔧 Scripts",
+      "path": "scripts"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/*.pyc": true,
+      "**/.pytest_cache": true,
+      "**/.DS_Store": true,
+      "**/venv": true,
+      "**/.terraform": true,
+      "**/*.tfstate*": true
+    },
+    "search.exclude": {
+      "**/venv": true,
+      "**/.terraform": true,
+      "**/node_modules": true
+    },
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.formatting.provider": "black",
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+      "tests"
+    ],
+    "editor.formatOnSave": true,
+    "editor.rulers": [
+      100
+    ],
+    "files.associations": {
+      "*.tf": "terraform",
+      "*.tfvars": "terraform"
+    },
+    "[python]": {
+      "editor.defaultFormatter": "ms-python.python",
+      "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+      }
+    },
+    "[terraform]": {
+      "editor.defaultFormatter": "hashicorp.terraform",
+      "editor.formatOnSave": true
+    },
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[markdown]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.wordWrap": "on"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "hashicorp.terraform",
+      "amazonwebservices.aws-toolkit-vscode",
+      "ms-vscode.makefile-tools",
+      "yzhang.markdown-all-in-one",
+      "streetsidesoftware.code-spell-checker",
+      "eamodio.gitlens"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "🧪 Run All Tests",
+        "type": "shell",
+        "command": "pytest tests/ -v",
+        "group": "test",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "🚀 Terraform Plan",
+        "type": "shell",
+        "command": "cd terraform && terraform plan",
+        "group": "build",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "🚀 Terraform Apply",
+        "type": "shell",
+        "command": "cd terraform && terraform apply",
+        "group": "build",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "⚡ Test Cost Analyzer Lambda",
+        "type": "shell",
+        "command": "aws lambda invoke --function-name cloudcost-guardian-dev-cost-analyzer --region us-east-1 /tmp/test.json && cat /tmp/test.json | python3 -m json.tool",
+        "group": "test",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "⚡ Test All Lambdas",
+        "type": "shell",
+        "command": "for func in cost-analyzer forecaster recommender notifier; do echo \"Testing $func...\"; aws lambda invoke --function-name cloudcost-guardian-dev-$func --region us-east-1 /tmp/$func.json && cat /tmp/$func.json | python3 -m json.tool; echo \"\"; done",
+        "group": "test",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "📊 View CloudWatch Logs",
+        "type": "shell",
+        "command": "aws logs tail /aws/lambda/cloudcost-guardian-dev-cost-analyzer --follow --region us-east-1",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "🔍 Check DynamoDB Tables",
+        "type": "shell",
+        "command": "for table in cost_history cost_anomalies cost_recommendations; do echo \"📊 $table:\"; aws dynamodb scan --table-name $table --select COUNT --region us-east-1 | jq '.Count'; done",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      }
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "🧪 Debug Tests",
+        "type": "python",
+        "request": "launch",
+        "module": "pytest",
+        "args": [
+          "tests/",
+          "-v"
+        ],
+        "console": "integratedTerminal",
+        "justMyCode": false
+      },
+      {
+        "name": "⚡ Debug Cost Analyzer",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/src/cost_analyzer/lambda_function.py",
+        "console": "integratedTerminal",
+        "env": {
+          "COST_HISTORY_TABLE": "cost_history"
+        }
+      },
+      {
+        "name": "⚡ Debug Forecaster",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/src/forecaster/lambda_function.py",
+        "console": "integratedTerminal",
+        "env": {
+          "COST_HISTORY_TABLE": "cost_history",
+          "FORECAST_TABLE": "cost_history"
+        }
+      }
+    ]
+  }
+}

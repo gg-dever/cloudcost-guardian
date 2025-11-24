@@ -7,14 +7,24 @@ import pytest
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch, MagicMock
-from moto import mock_dynamodb
+from moto import mock_aws  # Updated for moto v5+
 import boto3
 
-# Import the lambda function
+# Import the lambda function from cost_analyzer using importlib to avoid conflicts
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/cost_analyzer'))
-from lambda_function import lambda_handler, process_cost_data, store_in_dynamodb
+import importlib.util
+
+# Load the cost_analyzer lambda_function module
+cost_analyzer_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/cost_analyzer/lambda_function.py'))
+spec = importlib.util.spec_from_file_location("cost_analyzer_lambda", cost_analyzer_path)
+cost_analyzer_lambda = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cost_analyzer_lambda)
+
+# Extract functions we need
+lambda_handler = cost_analyzer_lambda.lambda_handler
+process_cost_data = cost_analyzer_lambda.process_cost_data
+store_in_dynamodb = cost_analyzer_lambda.store_in_dynamodb
 
 
 @pytest.fixture
@@ -54,7 +64,7 @@ def mock_cost_explorer_response():
 @pytest.fixture
 def mock_dynamodb_table():
     """Create mock DynamoDB table."""
-    with mock_dynamodb():
+    with mock_aws():
         dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
         
         table = dynamodb.create_table(
@@ -82,37 +92,38 @@ def test_process_cost_data(mock_cost_explorer_response):
     assert 'ttl' in processed[0]  # Auto-delete timestamp
 
 
-@patch('lambda_function.ce_client')
-@patch('lambda_function.table')
-def test_lambda_handler_success(mock_table, mock_ce_client, mock_cost_explorer_response):
+def test_lambda_handler_success(mock_cost_explorer_response):
     """Test successful lambda execution."""
-    # Setup mocks
-    mock_ce_client.get_cost_and_usage.return_value = mock_cost_explorer_response
-    mock_table.batch_writer.return_value.__enter__.return_value = MagicMock()
-    
-    # Execute lambda
-    response = lambda_handler({}, {})
-    
-    # Assertions
-    assert response['statusCode'] == 200
-    body = json.loads(response['body'])
-    assert body['message'] == 'Cost analysis completed successfully'
-    assert body['records_processed'] == 2
+    # Setup mocks by patching the loaded module
+    with patch.object(cost_analyzer_lambda, 'ce_client') as mock_ce_client, \
+         patch.object(cost_analyzer_lambda, 'table') as mock_table:
+        
+        mock_ce_client.get_cost_and_usage.return_value = mock_cost_explorer_response
+        mock_table.batch_writer.return_value.__enter__.return_value = MagicMock()
+        
+        # Execute lambda
+        response = lambda_handler({}, {})
+        
+        # Assertions
+        assert response['statusCode'] == 200
+        body = json.loads(response['body'])
+        assert body['message'] == 'Cost analysis completed successfully'
+        assert body['records_processed'] == 2
 
 
-@patch('lambda_function.ce_client')
-def test_lambda_handler_error(mock_ce_client):
+def test_lambda_handler_error():
     """Test lambda error handling."""
-    # Setup mock to raise exception
-    mock_ce_client.get_cost_and_usage.side_effect = Exception('API Error')
-    
-    # Execute lambda
-    response = lambda_handler({}, {})
-    
-    # Assertions
-    assert response['statusCode'] == 500
-    body = json.loads(response['body'])
-    assert 'error' in body
+    # Setup mock to raise exception by patching the loaded module
+    with patch.object(cost_analyzer_lambda, 'ce_client') as mock_ce_client:
+        mock_ce_client.get_cost_and_usage.side_effect = Exception('API Error')
+        
+        # Execute lambda
+        response = lambda_handler({}, {})
+        
+        # Assertions
+        assert response['statusCode'] == 500
+        body = json.loads(response['body'])
+        assert 'error' in body
 
 
 def test_store_in_dynamodb(mock_dynamodb_table):

@@ -15,10 +15,10 @@ CloudCost Guardian solves this by providing predictive, prescriptive, and action
 ## ✨ Key Features
 
 ### 1. Predictive Cost Forecasting
-- 30-day rolling forecast with 85%+ accuracy
+- 30-day rolling forecast using **AWS Cost Explorer native API**
+- Production-grade predictions from AWS's ensemble models
 - Budget overrun alerts **before** they happen
-- Trend analysis across services and teams
-- ML-powered predictions using historical patterns
+- Handles seasonality, trends, and usage patterns automatically
 
 ### 2. Intelligent Recommendations
 - Automated detection of right-sizing opportunities
@@ -62,17 +62,17 @@ CloudCost Guardian solves this by providing predictive, prescriptive, and action
 ### Component Breakdown
 
 **Data Collection Layer:**
-- **EventBridge Scheduler**: Triggers Lambda functions daily (00:00, 01:00, 02:00, 03:00 UTC)
+- **EventBridge Scheduler**: Triggers cost analyzer Lambda daily (08:00 UTC)
 - **Cost Analyzer Lambda**: Fetches cost data from AWS Cost Explorer API
 
 **Storage Layer:**
 - **DynamoDB Tables**: 
-  - `cost-data`: Historical cost records
-  - `cost-forecasts`: ML predictions
-  - `cost-recommendations`: Optimization suggestions
+  - `cost_history`: Historical cost records and forecast predictions
+  - `cost_anomalies`: Detected cost spikes and anomalies
+  - `cost_recommendations`: Optimization suggestions
 
 **Processing Layer:**
-- **Forecaster Lambda**: Generates 30-day predictions using scikit-learn
+- **Forecaster Lambda**: Generates 30-day predictions using AWS Cost Explorer GetCostForecast API
 - **Recommender Lambda**: Analyzes patterns and creates actionable recommendations
 - **Notifier Lambda**: Detects anomalies and sends threshold alerts
 
@@ -119,19 +119,40 @@ aws configure
 nano .env
 ```
 
-### 4. Deploy Infrastructure
+### 4. Configure Email Notifications (Optional)
+
+```bash
+# Copy the example tfvars file
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+
+# Edit with your email address
+nano terraform.tfvars
+# Set: alert_email = "your-email@example.com"
+```
+
+### 5. Deploy Infrastructure
 
 ```bash
 cd terraform
 terraform init
 terraform plan
 terraform apply
+
+# If you configured email, check your inbox and confirm the SNS subscription
 ```
 
-### 5. Generate Test Data (Optional)
+### 6. Verify Deployment
 
 ```bash
-python scripts/seed-data.py
+# Test all Lambda functions
+aws lambda invoke --function-name cloudcost-guardian-dev-cost-analyzer /tmp/test.json
+aws lambda invoke --function-name cloudcost-guardian-dev-forecaster /tmp/test.json
+aws lambda invoke --function-name cloudcost-guardian-dev-recommender /tmp/test.json
+aws lambda invoke --function-name cloudcost-guardian-dev-notifier /tmp/test.json
+
+# Check DynamoDB tables
+aws dynamodb list-tables
 ```
 
 ## 📁 Project Structure
@@ -275,7 +296,7 @@ notification_email  = "your-email@example.com"
 
 ### Forecaster
 - **Trigger**: EventBridge (daily at 01:00 UTC)
-- **Purpose**: Generates 30-day cost forecasts using ML
+- **Purpose**: Generates 30-day cost forecasts using AWS Cost Explorer API
 - **Output**: Stores predictions in DynamoDB
 
 ### Recommender
@@ -330,10 +351,10 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-- AWS Cost Explorer API
+- AWS Cost Explorer API (including GetCostForecast)
 - Terraform AWS Provider
 - Chart.js for visualizations
-- scikit-learn for ML forecasting
+- AWS SDK for Python (Boto3)
 
 ## 📧 Support
 

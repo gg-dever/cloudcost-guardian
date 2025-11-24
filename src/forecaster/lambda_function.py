@@ -1,7 +1,8 @@
 """
 AWS Cost Forecaster Lambda Function
 
-Predicts future AWS costs using historical data and machine learning.
+Uses AWS Cost Explorer's native GetCostForecast API for predictions.
+More accurate than custom ML models - uses AWS's production forecasting.
 """
 
 import json
@@ -9,16 +10,13 @@ import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 import boto3
-import numpy as np
-import pandas as pd
-from sklearn.linear_model import LinearRegression
 from botocore.exceptions import ClientError
 
 
 # Initialize AWS clients
+ce_client = boto3.client('ce')  # Cost Explorer
 dynamodb = boto3.resource('dynamodb')
 cost_table = dynamodb.Table(os.environ.get('COST_HISTORY_TABLE', 'cost_history'))
-# Forecasts stored back in cost_history with future dates
 forecast_table = cost_table
 
 
@@ -26,7 +24,7 @@ def lambda_handler(event, context):
     """
     Main handler function for AWS Lambda.
     
-    Generates cost forecasts based on historical data.
+    Uses AWS Cost Explorer's native GetCostForecast API.
     
     Args:
         event: AWS Lambda event object
@@ -36,26 +34,27 @@ def lambda_handler(event, context):
         dict: Response with status code and body
     """
     try:
-        # Fetch historical cost data
-        historical_data = fetch_historical_data()
+        print("Fetching cost forecasts from AWS Cost Explorer API...")
         
-        if historical_data is None:
+        # Get forecasts from AWS
+        forecast_data = fetch_aws_forecast()
+        
+        if not forecast_data:
             return {
-                'statusCode': 400,
-                'body': json.dumps({'error': 'Insufficient historical data'})
+                'statusCode': 200,
+                'body': json.dumps({'message': 'No forecast data available'})
             }
         
-        # Generate forecasts
-        forecasts = generate_forecasts(historical_data)
+        print(f"Received {len(forecast_data)} days of forecast data")
         
-        # Store forecasts
-        store_forecasts(forecasts)
+        # Store forecasts in DynamoDB
+        store_forecasts(forecast_data)
         
         return {
             'statusCode': 200,
             'body': json.dumps({
                 'message': 'Forecast generated successfully',
-                'forecast_days': len(forecasts)
+                'forecast_days': len(forecast_data)
             })
         }
         
@@ -67,85 +66,90 @@ def lambda_handler(event, context):
         }
 
 
-def fetch_historical_data():
+def fetch_aws_forecast():
     """
-    Fetch historical cost data from DynamoDB.
+    Fetch cost forecasts using AWS Cost Explorer's native API.
+    Uses GetCostForecast which provides AWS's production-grade predictions.
     
-    Returns:
-        pd.DataFrame: Historical cost data
-    """
-    try:
-        # Scan table for last 90 days of data
-        response = cost_table.scan()
-        items = response.get('Items', [])
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(items)
-        if df.empty:
-            return None
-        
-        # Use blueprint schema column names
-        df['date'] = pd.to_datetime(df['date'])
-        df['cost_usd'] = df['cost_usd'].astype(float)
-        
-        return df
-        
-    except Exception as e:
-        print(f"Error fetching historical data: {e}")
-        return None
-
-
-def generate_forecasts(historical_data):
-    """
-    Generate cost forecasts using linear regression.
-    
-    Args:
-        historical_data: Historical cost DataFrame
-        
     Returns:
         list: Forecast data for next 30 days
     """
-    # Aggregate daily costs using blueprint schema
-    daily_costs = historical_data.groupby('date')['cost_usd'].sum().reset_index()
-    daily_costs = daily_costs.sort_values('date')
-    
-    # Prepare data for model
-    X = np.arange(len(daily_costs)).reshape(-1, 1)
-    y = daily_costs['cost_usd'].values
-    
-    # Train simple linear regression model
-    model = LinearRegression()
-    model.fit(X, y)
-    
-    # Generate forecasts for next 30 days
-    forecasts = []
-    last_date = daily_costs['date'].max()
-    
-    for i in range(1, 31):
-        forecast_date = last_date + timedelta(days=i)
-        X_pred = np.array([[len(daily_costs) + i - 1]])
-        predicted_cost = max(0, model.predict(X_pred)[0])  # Ensure non-negative
+    try:
+        # Define time period for forecast
+        today = datetime.now().date()
+        start_date = (today + timedelta(days=1)).strftime('%Y-%m-%d')  # Tomorrow
+        end_date = (today + timedelta(days=31)).strftime('%Y-%m-%d')    # 30 days out
         
-        forecasts.append({
-            'date': forecast_date.strftime('%Y-%m-%d'),
-            'predicted_cost': Decimal(str(round(predicted_cost, 2))),
-            'confidence': 'medium',  # Placeholder for confidence interval
-            'timestamp': datetime.now().isoformat()
-        })
-    
-    return forecasts
+        # Call AWS Cost Explorer forecast API
+        response = ce_client.get_cost_forecast(
+            TimePeriod={
+                'Start': start_date,
+                'End': end_date
+            },
+            Metric='UNBLENDED_COST',  # Standard cost metric
+            Granularity='DAILY',
+            PredictionIntervalLevel=80  # 80% confidence interval
+        )
+        
+        # Parse forecast results
+        forecasts = []
+        total_amount = response.get('Total', {}).get('Amount', '0')
+        
+        print(f"Total forecast for period: ${total_amount}")
+        
+        # AWS returns time series data
+        time_series = response.get('ForecastResultsByTime', [])
+        
+        for entry in time_series:
+            forecast_date = entry.get('TimePeriod', {}).get('Start')
+            mean_value = float(entry.get('MeanValue', 0))
+            
+            forecasts.append({
+                'date': forecast_date,
+                'predicted_cost': Decimal(str(round(mean_value, 2))),
+                'confidence': 'high',  # AWS's 80% prediction interval
+                'source': 'aws_cost_explorer',
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        return forecasts
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'DataUnavailableException':
+            print("Not enough historical data for forecast (need at least 3 months)")
+        else:
+            print(f"AWS API error: {e}")
+        return []
+    except Exception as e:
+        print(f"Error fetching AWS forecast: {e}")
+        return []
 
 
 def store_forecasts(forecasts):
     """
     Store forecast data in DynamoDB.
+    Forecasts are stored in cost_history table with service_name='FORECAST'
     
     Args:
-        forecasts: List of forecast records
+        forecasts: List of forecast records from AWS
     """
-    with forecast_table.batch_writer() as batch:
-        for forecast in forecasts:
-            forecast['id'] = f"forecast#{forecast['date']}"
-            batch.put_item(Item=forecast)
-    
-    print(f"Stored {len(forecasts)} forecast records")
+    try:
+        with forecast_table.batch_writer() as batch:
+            for forecast in forecasts:
+                # cost_history table needs: date (PK) and service_name (SK)
+                item = {
+                    'date': forecast['date'],
+                    'service_name': 'FORECAST',  # Mark as forecast data
+                    'cost_usd': forecast['predicted_cost'],
+                    'confidence': forecast.get('confidence', 'high'),
+                    'source': forecast.get('source', 'aws_cost_explorer'),
+                    'forecast_generated_at': forecast['timestamp']
+                }
+                batch.put_item(Item=item)
+        
+        print(f"Stored {len(forecasts)} forecast records in DynamoDB")
+        
+    except Exception as e:
+        print(f"Error storing forecasts: {e}")
+        raise

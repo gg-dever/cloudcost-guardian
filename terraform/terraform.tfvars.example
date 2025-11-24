@@ -1,0 +1,17 @@
+# ===================================
+# TERRAFORM VARIABLES - EXAMPLE
+# ===================================
+# Copy this file to terraform.tfvars and update with your values
+# terraform.tfvars is git-ignored for security
+
+# AWS Configuration
+aws_region  = "us-east-1"
+environment = "dev"
+
+# Email Notifications
+# Provide your email to receive cost alerts via SNS
+# You'll need to confirm the subscription via email after deployment
+alert_email = "your-email@example.com"
+
+# Cost Thresholds
+cost_threshold_percent = 20  # Alert when costs increase by 20%

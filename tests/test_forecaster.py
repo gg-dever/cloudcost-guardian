@@ -10,11 +10,21 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch, MagicMock
 
-# Import the lambda function
+# Import the lambda function from forecaster using importlib to avoid conflicts
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/forecaster'))
-from lambda_function import lambda_handler, fetch_historical_data, generate_forecasts
+import importlib.util
+
+# Load the forecaster lambda_function module
+forecaster_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/forecaster/lambda_function.py'))
+spec = importlib.util.spec_from_file_location("forecaster_lambda", forecaster_path)
+forecaster_lambda = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(forecaster_lambda)
+
+# Extract functions we need
+lambda_handler = forecaster_lambda.lambda_handler
+fetch_historical_data = forecaster_lambda.fetch_historical_data
+generate_forecasts = forecaster_lambda.generate_forecasts
 
 
 @pytest.fixture
@@ -46,36 +56,37 @@ def test_generate_forecasts(sample_historical_data):
         assert float(forecast['predicted_cost']) >= 0
 
 
-@patch('lambda_function.fetch_historical_data')
-@patch('lambda_function.forecast_table')
-def test_lambda_handler_success(mock_table, mock_fetch, sample_historical_data):
+def test_lambda_handler_success(sample_historical_data):
     """Test successful lambda execution."""
-    # Setup mocks
-    mock_fetch.return_value = sample_historical_data
-    mock_table.batch_writer.return_value.__enter__.return_value = MagicMock()
-    
-    # Execute lambda
-    response = lambda_handler({}, {})
-    
-    # Assertions
-    assert response['statusCode'] == 200
-    body = json.loads(response['body'])
-    assert body['message'] == 'Forecast generated successfully'
-    assert body['forecast_days'] == 30
+    # Setup mocks by patching the loaded module
+    with patch.object(forecaster_lambda, 'fetch_historical_data') as mock_fetch, \
+         patch.object(forecaster_lambda, 'forecast_table') as mock_table:
+        
+        mock_fetch.return_value = sample_historical_data
+        mock_table.batch_writer.return_value.__enter__.return_value = MagicMock()
+        
+        # Execute lambda
+        response = lambda_handler({}, {})
+        
+        # Assertions
+        assert response['statusCode'] == 200
+        body = json.loads(response['body'])
+        assert body['message'] == 'Forecast generated successfully'
+        assert body['forecast_days'] == 30
 
 
-@patch('lambda_function.fetch_historical_data')
-def test_lambda_handler_insufficient_data(mock_fetch):
+def test_lambda_handler_insufficient_data():
     """Test handling of insufficient historical data."""
-    # Setup mock to return None
-    mock_fetch.return_value = None
-    
-    # Execute lambda
-    response = lambda_handler({}, {})
-    
-    # Assertions
-    assert response['statusCode'] == 400
-    body = json.loads(response['body'])
+    # Setup mock to return None by patching the loaded module
+    with patch.object(forecaster_lambda, 'fetch_historical_data') as mock_fetch:
+        mock_fetch.return_value = None
+        
+        # Execute lambda
+        response = lambda_handler({}, {})
+        
+        # Assertions
+        assert response['statusCode'] == 400
+        body = json.loads(response['body'])
     assert 'Insufficient historical data' in body['error']
 
 

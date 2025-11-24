@@ -49,8 +49,9 @@ def lambda_handler(event, context):
         # Check for alerts
         alerts = check_cost_alerts(daily_costs)
         
-        # Send notifications if alerts exist
+        # Store anomalies in DynamoDB and send notifications
         if alerts:
+            store_anomalies(alerts)
             send_notifications(alerts)
         
         return {
@@ -136,6 +137,52 @@ def check_cost_alerts(daily_costs):
             })
     
     return alerts
+
+
+def store_anomalies(alerts):
+    """
+    Store detected anomalies in DynamoDB.
+    
+    Args:
+        alerts: List of alert dictionaries
+    """
+    try:
+        import uuid
+        from datetime import timedelta
+        
+        with anomalies_table.batch_writer() as batch:
+            for alert in alerts:
+                # Calculate TTL (90 days from now for anomalies)
+                ttl = int((datetime.now() + timedelta(days=90)).timestamp())
+                
+                # Create unique detection_date with UUID fragment to avoid duplicates
+                detection_date = f"{datetime.now().strftime('%Y-%m-%d')}#{str(uuid.uuid4())[:8]}"
+                
+                anomaly = {
+                    'anomaly_type': alert['type'],  # PK: DAILY_SPIKE or SERVICE_SPIKE
+                    'detection_date': detection_date,  # SK: Made unique
+                    'severity': alert['severity'],
+                    'message': alert['message'],
+                    'detected_at': datetime.now().isoformat(),
+                    'ttl': ttl
+                }
+                
+                # Add service-specific fields for SERVICE_SPIKE
+                if alert['type'] == 'SERVICE_SPIKE':
+                    anomaly['service_name'] = alert['service']
+                    anomaly['cost_usd'] = Decimal(str(round(alert['cost'], 2)))
+                
+                # Add threshold fields for DAILY_SPIKE
+                if alert['type'] == 'DAILY_SPIKE':
+                    anomaly['total_cost'] = Decimal(str(round(alert['total_cost'], 2)))
+                    anomaly['threshold'] = Decimal(str(round(alert['threshold'], 2)))
+                
+                batch.put_item(Item=anomaly)
+        
+        print(f"Stored {len(alerts)} anomalies in DynamoDB")
+        
+    except Exception as e:
+        print(f"Error storing anomalies: {e}")
 
 
 def send_notifications(alerts):

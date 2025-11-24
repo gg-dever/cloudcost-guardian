@@ -165,9 +165,13 @@ def generate_service_recommendation(service, total_cost):
     from datetime import timedelta
     ttl = int((datetime.now() + timedelta(days=180)).timestamp())
     
+    # Make SK unique by combining date + timestamp to avoid duplicate key errors
+    # Multiple services can have same recommendation_type on same day
+    generated_date_unique = f"{datetime.now().strftime('%Y-%m-%d')}#{recommendation_id[:8]}"
+    
     return {
         'recommendation_type': rec_type,  # PK in blueprint schema
-        'generated_date': datetime.now().strftime('%Y-%m-%d'),  # SK in blueprint schema
+        'generated_date': generated_date_unique,  # SK - made unique with UUID fragment
         'recommendation_id': recommendation_id,
         'service_name': service,  # Blueprint uses service_name
         'current_cost': Decimal(str(round(total_cost, 2))),

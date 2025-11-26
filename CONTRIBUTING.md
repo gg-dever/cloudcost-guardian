@@ -1,10 +1,10 @@
 # Contributing to CloudCost Guardian
 
-Thank you for your interest in contributing! This document outlines our development workflow and guidelines.
+Thank you for your interest in contributing! This document outlines my development workflow and guidelines.
 
 ## 🌿 Branch Strategy
 
-We follow a **Git Flow** branching model for organized development:
+I follow a **Git Flow** branching model for organized development:
 
 ### Main Branches
 

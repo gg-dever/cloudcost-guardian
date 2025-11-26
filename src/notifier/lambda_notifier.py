@@ -6,17 +6,20 @@ Sends alerts and notifications based on cost thresholds and anomalies.
 
 import json
 import os
+import sys
 from datetime import datetime
 from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 
+# Import from Lambda Layer
+from shared.schemas import parse_cost_history_item
+from shared.routers.cost_history_router import cost_history_router
+from shared.routers.cost_anomalies_router import cost_anomalies_router
+
 
 # Initialize AWS clients
 sns_client = boto3.client('sns')
-dynamodb = boto3.resource('dynamodb')
-cost_table = dynamodb.Table(os.environ.get('COST_HISTORY_TABLE', 'cost_history'))
-anomalies_table = dynamodb.Table(os.environ.get('ANOMALIES_TABLE', 'cost_anomalies'))
 
 # Configuration
 SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')
@@ -72,21 +75,19 @@ def lambda_handler(event, context):
 
 def fetch_daily_costs():
     """
-    Fetch today's cost data from DynamoDB.
+    Fetch today's ACTUAL cost data from DynamoDB using router.
+    Excludes forecast data (service_name='FORECAST') to prevent false alerts.
     
     Returns:
-        list: Today's cost records
+        list: Today's actual cost records (excluding forecasts)
     """
     try:
-        from boto3.dynamodb.conditions import Key
         today = datetime.now().date().strftime('%Y-%m-%d')
         
-        # Query costs for today using PK (date)
-        response = cost_table.query(
-            KeyConditionExpression=Key('date').eq(today)
-        )
+        # Use router to query with automatic FORECAST exclusion
+        actual_costs = cost_history_router.query_by_date(today, exclude_forecast=True)
         
-        return response.get('Items', [])
+        return actual_costs
         
     except Exception as e:
         print(f"Error fetching daily costs: {e}")
@@ -141,45 +142,37 @@ def check_cost_alerts(daily_costs):
 
 def store_anomalies(alerts):
     """
-    Store detected anomalies in DynamoDB.
+    Store detected anomalies in DynamoDB using router.
     
     Args:
         alerts: List of alert dictionaries
     """
     try:
-        import uuid
-        from datetime import timedelta
+        stored_count = 0
         
-        with anomalies_table.batch_writer() as batch:
-            for alert in alerts:
-                # Calculate TTL (90 days from now for anomalies)
-                ttl = int((datetime.now() + timedelta(days=90)).timestamp())
-                
-                # Create unique detection_date with UUID fragment to avoid duplicates
-                detection_date = f"{datetime.now().strftime('%Y-%m-%d')}#{str(uuid.uuid4())[:8]}"
-                
-                anomaly = {
-                    'anomaly_type': alert['type'],  # PK: DAILY_SPIKE or SERVICE_SPIKE
-                    'detection_date': detection_date,  # SK: Made unique
-                    'severity': alert['severity'],
-                    'message': alert['message'],
-                    'detected_at': datetime.now().isoformat(),
-                    'ttl': ttl
-                }
-                
-                # Add service-specific fields for SERVICE_SPIKE
-                if alert['type'] == 'SERVICE_SPIKE':
-                    anomaly['service_name'] = alert['service']
-                    anomaly['cost_usd'] = Decimal(str(round(alert['cost'], 2)))
-                
-                # Add threshold fields for DAILY_SPIKE
-                if alert['type'] == 'DAILY_SPIKE':
-                    anomaly['total_cost'] = Decimal(str(round(alert['total_cost'], 2)))
-                    anomaly['threshold'] = Decimal(str(round(alert['threshold'], 2)))
-                
-                batch.put_item(Item=anomaly)
+        for alert in alerts:
+            # Prepare optional parameters based on alert type
+            service_name = alert.get('service') if alert['type'] == 'SERVICE_SPIKE' else None
+            cost_usd = Decimal(str(round(alert['cost'], 2))) if 'cost' in alert else None
+            total_cost = Decimal(str(round(alert['total_cost'], 2))) if 'total_cost' in alert else None
+            threshold = Decimal(str(round(alert['threshold'], 2))) if 'threshold' in alert else None
+            
+            # Use router to create anomaly
+            result = cost_anomalies_router.create_anomaly(
+                anomaly_type=alert['type'],
+                severity=alert['severity'],
+                message=alert['message'],
+                service_name=service_name,
+                cost_usd=cost_usd,
+                total_cost=total_cost,
+                threshold=threshold,
+                ttl_days=90
+            )
+            
+            if result:
+                stored_count += 1
         
-        print(f"Stored {len(alerts)} anomalies in DynamoDB")
+        print(f"Stored {stored_count}/{len(alerts)} anomalies in DynamoDB")
         
     except Exception as e:
         print(f"Error storing anomalies: {e}")

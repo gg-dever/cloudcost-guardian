@@ -7,17 +7,19 @@ More accurate than custom ML models - uses AWS's production forecasting.
 
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 
+# Import from Lambda Layer
+from shared.schemas import CostHistoryRecord
+from shared.routers.cost_history_router import cost_history_router
+
 
 # Initialize AWS clients
 ce_client = boto3.client('ce')  # Cost Explorer
-dynamodb = boto3.resource('dynamodb')
-cost_table = dynamodb.Table(os.environ.get('COST_HISTORY_TABLE', 'cost_history'))
-forecast_table = cost_table
 
 
 def lambda_handler(event, context):
@@ -101,16 +103,9 @@ def fetch_aws_forecast():
         time_series = response.get('ForecastResultsByTime', [])
         
         for entry in time_series:
-            forecast_date = entry.get('TimePeriod', {}).get('Start')
-            mean_value = float(entry.get('MeanValue', 0))
-            
-            forecasts.append({
-                'date': forecast_date,
-                'predicted_cost': Decimal(str(round(mean_value, 2))),
-                'confidence': 'high',  # AWS's 80% prediction interval
-                'source': 'aws_cost_explorer',
-                'timestamp': datetime.now().isoformat()
-            })
+            # Use schema mapper to parse AWS forecast response
+            record = CostHistoryRecord.from_forecast_response(entry)
+            forecasts.append(record)
         
         return forecasts
         
@@ -128,27 +123,18 @@ def fetch_aws_forecast():
 
 def store_forecasts(forecasts):
     """
-    Store forecast data in DynamoDB.
+    Store forecast data in DynamoDB using the cost_history_router.
     Forecasts are stored in cost_history table with service_name='FORECAST'
     
     Args:
-        forecasts: List of forecast records from AWS
+        forecasts: List of CostHistoryRecord objects from AWS forecast
     """
     try:
-        with forecast_table.batch_writer() as batch:
-            for forecast in forecasts:
-                # cost_history table needs: date (PK) and service_name (SK)
-                item = {
-                    'date': forecast['date'],
-                    'service_name': 'FORECAST',  # Mark as forecast data
-                    'cost_usd': forecast['predicted_cost'],
-                    'confidence': forecast.get('confidence', 'high'),
-                    'source': forecast.get('source', 'aws_cost_explorer'),
-                    'forecast_generated_at': forecast['timestamp']
-                }
-                batch.put_item(Item=item)
+        # Use router for batch storage
+        stored_count = cost_history_router.put_batch(forecasts)
         
-        print(f"Stored {len(forecasts)} forecast records in DynamoDB")
+        if stored_count != len(forecasts):
+            print(f"Warning: Only {stored_count}/{len(forecasts)} forecast records stored successfully")
         
     except Exception as e:
         print(f"Error storing forecasts: {e}")

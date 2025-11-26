@@ -302,16 +302,26 @@ data "archive_file" "notifier_zip" {
   output_path = "${path.module}/lambda_packages/notifier.zip"
 }
 
-# Package ML dependencies as a Lambda Layer (minimal - only NumPy)
-data "archive_file" "ml_layer_zip" {
+# Package shared modules as Lambda Layer
+data "archive_file" "shared_layer_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/lambda_layers_minimal"
-  output_path = "${path.module}/lambda_packages/ml_layer.zip"
+  source_dir  = "${path.module}/../lambda_layer"
+  output_path = "${path.module}/lambda_packages/shared_layer.zip"
 }
 
 # ===================================
-# STEP 4B: USE AWS LAMBDA POWERTOOLS LAYER (includes NumPy)
+# STEP 4B: CREATE LAMBDA LAYER
 # ===================================
+
+resource "aws_lambda_layer_version" "shared_layer" {
+  filename            = data.archive_file.shared_layer_zip.output_path
+  layer_name          = "${local.name_prefix}-shared-modules"
+  source_code_hash    = data.archive_file.shared_layer_zip.output_base64sha256
+  compatible_runtimes = ["python3.11"]
+  
+  description = "Shared modules: schemas, routers, and utilities"
+}
+
 # ===================================
 # STEP 5: CREATE LAMBDA FUNCTIONS
 # ===================================
@@ -322,11 +332,12 @@ resource "aws_lambda_function" "cost_analyzer" {
   filename         = data.archive_file.cost_analyzer_zip.output_path
   function_name    = "${local.name_prefix}-cost-analyzer"
   role            = aws_iam_role.lambda_execution_role.arn
-  handler         = "lambda_function.lambda_handler"
+  handler         = "lambda_cost_analyzer.lambda_handler"
   source_code_hash = data.archive_file.cost_analyzer_zip.output_base64sha256
   runtime         = "python3.11"
   timeout         = 60  # seconds
   memory_size     = 256 # MB
+  layers          = [aws_lambda_layer_version.shared_layer.arn]
 
   environment {
     variables = {
@@ -346,11 +357,12 @@ resource "aws_lambda_function" "forecaster" {
   filename         = data.archive_file.forecaster_zip.output_path
   function_name    = "${local.name_prefix}-forecaster"
   role            = aws_iam_role.lambda_execution_role.arn
-  handler         = "lambda_function.lambda_handler"
+  handler         = "lambda_forecaster.lambda_handler"
   source_code_hash = data.archive_file.forecaster_zip.output_base64sha256
   runtime         = "python3.11"
   timeout         = 90
   memory_size     = 256  # Reduced - no ML processing needed
+  layers          = [aws_lambda_layer_version.shared_layer.arn]
 
   environment {
     variables = {
@@ -371,11 +383,12 @@ resource "aws_lambda_function" "recommender" {
   filename         = data.archive_file.recommender_zip.output_path
   function_name    = "${local.name_prefix}-recommender"
   role            = aws_iam_role.lambda_execution_role.arn
-  handler         = "lambda_function.lambda_handler"
+  handler         = "lambda_recommender.lambda_handler"
   source_code_hash = data.archive_file.recommender_zip.output_base64sha256
   runtime         = "python3.11"
   timeout         = 90
   memory_size     = 256
+  layers          = [aws_lambda_layer_version.shared_layer.arn]
 
   environment {
     variables = {
@@ -396,11 +409,12 @@ resource "aws_lambda_function" "notifier" {
   filename         = data.archive_file.notifier_zip.output_path
   function_name    = "${local.name_prefix}-notifier"
   role            = aws_iam_role.lambda_execution_role.arn
-  handler         = "lambda_function.lambda_handler"
+  handler         = "lambda_notifier.lambda_handler"
   source_code_hash = data.archive_file.notifier_zip.output_base64sha256
   runtime         = "python3.11"
   timeout         = 60
   memory_size     = 256
+  layers          = [aws_lambda_layer_version.shared_layer.arn]
 
   environment {
     variables = {

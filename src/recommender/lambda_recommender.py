@@ -6,16 +6,16 @@ Analyzes cost data and generates optimization recommendations.
 
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 
-
-# Initialize AWS clients
-dynamodb = boto3.resource('dynamodb')
-cost_table = dynamodb.Table(os.environ.get('COST_HISTORY_TABLE', 'cost_history'))
-recommendations_table = dynamodb.Table(os.environ.get('RECOMMENDATIONS_TABLE', 'cost_recommendations'))
+# Import from Lambda Layer
+from shared.schemas import parse_cost_history_item
+from shared.routers.cost_history_router import cost_history_router
+from shared.routers.cost_recommendations_router import cost_recommendations_router
 
 
 def lambda_handler(event, context):
@@ -65,14 +65,14 @@ def lambda_handler(event, context):
 
 def fetch_recent_costs():
     """
-    Fetch recent cost data from DynamoDB.
+    Fetch recent cost data from DynamoDB using router.
     
     Returns:
-        list: Recent cost records
+        list: Recent cost records (excluding forecasts)
     """
     try:
-        response = cost_table.scan()
-        return response.get('Items', [])
+        # Use router to scan, automatically excluding forecasts
+        return cost_history_router.scan_all(exclude_forecast=True)
     except Exception as e:
         print(f"Error fetching costs: {e}")
         return []
@@ -81,16 +81,17 @@ def fetch_recent_costs():
 def analyze_and_recommend(cost_data):
     """
     Analyze cost data and generate recommendations.
+    Data is already filtered by router to exclude forecast records.
     
     Args:
-        cost_data: List of cost records
+        cost_data: List of cost records from DynamoDB (no forecasts)
         
     Returns:
         list: Cost optimization recommendations
     """
     recommendations = []
     
-    # Aggregate costs by service
+    # Aggregate costs by service (data already filtered by router)
     service_costs = {}
     for record in cost_data:
         service = record.get('service_name', 'Unknown')  # Blueprint uses service_name
@@ -189,13 +190,16 @@ def generate_service_recommendation(service, total_cost):
 
 def store_recommendations(recommendations):
     """
-    Store recommendations in DynamoDB.
+    Store recommendations in DynamoDB using router.
     
     Args:
         recommendations: List of recommendation records
     """
-    with recommendations_table.batch_writer() as batch:
-        for rec in recommendations:
-            batch.put_item(Item=rec)
-    
-    print(f"Stored {len(recommendations)} recommendations")
+    try:
+        # Use router for batch storage
+        stored_count = cost_recommendations_router.put_batch(recommendations)
+        
+        if stored_count != len(recommendations):
+            print(f"Warning: Only {stored_count}/{len(recommendations)} recommendations stored successfully")
+    except Exception as e:
+        print(f"Error storing recommendations: {e}")

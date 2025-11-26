@@ -7,16 +7,19 @@ Stores results in DynamoDB for dashboard consumption.
 
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 
+# Import from Lambda Layer
+from shared.schemas import CostHistoryRecord
+from shared.routers.cost_history_router import cost_history_router
+
 
 # Initialize AWS clients
 ce_client = boto3.client('ce')  # Cost Explorer
-dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table(os.environ.get('COST_HISTORY_TABLE', 'cost_history'))
 
 
 def lambda_handler(event, context):
@@ -78,13 +81,13 @@ def lambda_handler(event, context):
 
 def process_cost_data(response):
     """
-    Process raw cost data from Cost Explorer API.
+    Process raw cost data from Cost Explorer API using schema mappers.
     
     Args:
         response: Response from Cost Explorer API
         
     Returns:
-        list: Processed cost data records
+        list: Processed cost data records as CostHistoryRecord objects
     """
     processed_data = []
     
@@ -92,36 +95,29 @@ def process_cost_data(response):
         date = result['TimePeriod']['Start']  # PK: date (YYYY-MM-DD)
         
         for group in result.get('Groups', []):
-            service_name = group['Keys'][0]  # SK: service_name
-            cost_usd = float(group['Metrics']['UnblendedCost']['Amount'])
-            usage_quantity = float(group['Metrics'].get('UsageQuantity', {}).get('Amount', 0))
-            
-            # Calculate TTL (90 days from now)
-            ttl = int((datetime.now() + timedelta(days=90)).timestamp())
-            
-            processed_data.append({
-                'date': date,  # Partition Key
-                'service_name': service_name,  # Sort Key
-                'cost_usd': Decimal(str(cost_usd)),
-                'usage_quantity': Decimal(str(usage_quantity)),
-                'usage_unit': 'Units',  # Default unit
-                'created_at': datetime.now().isoformat(),
-                'ttl': ttl  # Auto-delete after 90 days
-            })
+            # Use schema mapper to parse AWS API response
+            record = CostHistoryRecord.from_cost_explorer_response(group, date)
+            processed_data.append(record)
     
     return processed_data
 
 
 def store_in_dynamodb(cost_data):
     """
-    Store processed cost data in DynamoDB.
+    Store cost data in DynamoDB using the cost_history_router.
     
     Args:
-        cost_data: List of cost data records to store
+        cost_data: List of CostHistoryRecord objects to store
     """
-    with table.batch_writer() as batch:
-        for item in cost_data:
-            # No composite key needed - PK (date) and SK (service_name) define uniqueness
-            batch.put_item(Item=item)
+    try:
+        # Use router for batch storage
+        stored_count = cost_history_router.put_batch(cost_data)
+        
+        if stored_count != len(cost_data):
+            print(f"Warning: Only {stored_count}/{len(cost_data)} records stored successfully")
+        
+    except Exception as e:
+        print(f"Error storing cost data: {e}")
+        raise
     
     print(f"Stored {len(cost_data)} records in DynamoDB")

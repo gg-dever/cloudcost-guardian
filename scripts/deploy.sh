@@ -45,8 +45,8 @@ for lambda_dir in "${LAMBDA_DIRS[@]}"; do
     rm -rf "$TEMP_DIR"
     mkdir -p "$TEMP_DIR"
     
-    # Copy Lambda function
-    cp "src/${lambda_dir}/lambda_function.py" "$TEMP_DIR/"
+    # Copy Lambda function (use new filename)
+    cp "src/${lambda_dir}/lambda_${lambda_dir}.py" "$TEMP_DIR/"
     
     # Install dependencies
     if [ -f "src/${lambda_dir}/requirements.txt" ]; then

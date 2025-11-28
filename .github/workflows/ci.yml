@@ -76,12 +76,17 @@ jobs:
     
     - name: Run Bandit security scan
       run: |
-        bandit -r src/ -ll || true
+        bandit -r src/ -ll --exit-zero
     
-    - name: Check for secrets with TruffleHog
+    - name: Scan for secrets with TruffleHog
+      if: github.event_name == 'pull_request'
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
-        base: ${{ github.event.repository.default_branch }}
-        head: HEAD
-      continue-on-error: true
+        base: ${{ github.event.pull_request.base.sha }}
+        head: ${{ github.event.pull_request.head.sha }}
+    
+    - name: Scan filesystem for secrets (on push)
+      if: github.event_name == 'push'
+      run: |
+        docker run --rm -v "$PWD:/scan" trufflesecurity/trufflehog:latest filesystem /scan --json --no-update || true

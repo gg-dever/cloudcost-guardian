@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudCost Guardian - Architecture Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #232F3E;
+            border-bottom: 3px solid #FF9900;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #232F3E;
+            margin-top: 50px;
+            margin-bottom: 20px;
+        }
+        .diagram-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 40px;
+            overflow-x: auto;
+        }
+        .mermaid {
+            text-align: center;
+            min-height: 400px;
+        }
+        .description {
+            color: #555;
+            font-size: 14px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #FF9900;
+            border-radius: 4px;
+        }
+        .nav {
+            position: sticky;
+            top: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .nav a {
+            color: #232F3E;
+            text-decoration: none;
+            padding: 8px 15px;
+            margin-right: 10px;
+            border-radius: 4px;
+            transition: background 0.2s;
+            display: inline-block;
+        }
+        .nav a:hover {
+            background: #FF9900;
+            color: white;
+        }
+        .legend {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+        .legend-item {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+            vertical-align: middle;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏗️ CloudCost Guardian - Architecture Diagrams</h1>
+
+    <div class="nav">
+        <strong>Quick Navigation:</strong>
+        <a href="#system">System Architecture</a>
+        <a href="#dataflow">Data Flow</a>
+        <a href="#router">Router Pattern</a>
+        <a href="#dynamodb">DynamoDB Schema</a>
+    </div>
+
+    <!-- Diagram 1: System Architecture -->
+    <div id="system" class="diagram-container">
+        <h2>1. High-Level System Architecture</h2>
+        <div class="description">
+            <strong>Overview:</strong> EventBridge triggers Cost Analyzer daily at 08:00 UTC. Four Lambda functions process cost data, store in DynamoDB, and send alerts via SNS. All Lambdas share a common layer with schemas and routers.
+        </div>
+        <div class="mermaid">
+graph TB
+    subgraph "Trigger Layer"
+        EB[EventBridge Scheduler<br/>Daily at 08:00 UTC]
+    end
+
+    subgraph "Processing Layer - AWS Lambda"
+        CA[Cost Analyzer<br/>Python 3.11 - 256MB]
+        FC[Forecaster<br/>Python 3.11 - 256MB]
+        RC[Recommender<br/>Python 3.11 - 256MB]
+        NT[Notifier<br/>Python 3.11 - 256MB]
+    end
+
+    subgraph "Data Layer - DynamoDB"
+        CH[(cost_history<br/>PK: date<br/>SK: service_name)]
+        AN[(cost_anomalies<br/>PK: anomaly_type<br/>SK: detection_date)]
+        RE[(cost_recommendations<br/>PK: recommendation_type<br/>SK: generated_date)]
+    end
+
+    subgraph "AWS Services"
+        CE[Cost Explorer API<br/>GetCostAndUsage<br/>GetCostForecast]
+        SN[SNS Topic<br/>Email Alerts]
+    end
+
+    subgraph "Lambda Layer"
+        LL[Shared Modules<br/>Schemas and Routers]
+    end
+
+    EB -->|Invokes| CA
+    CA -->|Fetch Costs| CE
+    CA -->|Write| CH
+    CA -.->|Uses| LL
+
+    FC -->|Query History| CH
+    FC -->|Call Forecast API| CE
+    FC -->|Write Forecasts| CH
+    FC -.->|Uses| LL
+
+    RC -->|Read Costs| CH
+    RC -->|Write| RE
+    RC -.->|Uses| LL
+
+    NT -->|Query Costs| CH
+    NT -->|Write| AN
+    NT -->|Publish| SN
+    NT -.->|Uses| LL
+
+    SN -->|Email| U[User Email]
+
+    style EB fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style CA fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style FC fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style RC fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style NT fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style CH fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+    style AN fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+    style RE fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+    style CE fill:#759C3E,stroke:#232F3E,stroke-width:2px,color:#fff
+    style SN fill:#C925D1,stroke:#232F3E,stroke-width:2px,color:#fff
+    style LL fill:#146EB4,stroke:#232F3E,stroke-width:2px,color:#fff
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <span class="legend-color" style="background: #FF9900;"></span>
+                <span>Lambda Functions & EventBridge</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #4053D6;"></span>
+                <span>DynamoDB Tables</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #759C3E;"></span>
+                <span>Cost Explorer API</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #C925D1;"></span>
+                <span>SNS Notifications</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #146EB4;"></span>
+                <span>Lambda Layer</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diagram 2: Data Flow -->
+    <div id="dataflow" class="diagram-container">
+        <h2>2. Data Flow Sequence</h2>
+        <div class="description">
+            <strong>Flow:</strong> EventBridge triggers Cost Analyzer → fetches from Cost Explorer → stores in DynamoDB → Forecaster runs → Recommender analyzes → Notifier detects anomalies and sends alerts.
+        </div>
+        <div class="mermaid">
+sequenceDiagram
+    participant EB as EventBridge
+    participant CA as Cost Analyzer
+    participant CE as Cost Explorer API
+    participant DB as cost_history
+    participant FC as Forecaster
+    participant RC as Recommender
+    participant NT as Notifier
+    participant SNS as SNS Topic
+    participant User as User Email
+
+    Note over EB: Daily at 08:00 UTC
+    EB->>CA: Trigger Lambda
+    CA->>CE: GetCostAndUsage(last 30 days)
+    CE-->>CA: Cost data by service
+    CA->>DB: Store cost records
+
+    Note over FC: Manual/Scheduled Trigger
+    FC->>DB: Query historical costs
+    FC->>CE: GetCostForecast(next 30 days)
+    CE-->>FC: Forecast predictions
+    FC->>DB: Store forecasts (service_name='FORECAST')
+
+    Note over RC: Analyze patterns
+    RC->>DB: Scan costs (exclude forecasts)
+    RC->>RC: Generate recommendations
+    RC->>DB: Store recommendations
+
+    Note over NT: Check for anomalies
+    NT->>DB: Query today's costs (exclude forecasts)
+    NT->>NT: Detect anomalies
+    NT->>DB: Store anomalies
+    NT->>SNS: Publish alert
+    SNS->>User: Email notification
+        </div>
+    </div>
+
+    <!-- Diagram 3: Router Pattern -->
+    <div id="router" class="diagram-container">
+        <h2>3. Router Pattern Architecture</h2>
+        <div class="description">
+            <strong>Key Innovation:</strong> Centralized data access layer with automatic forecast filtering. Reduces code duplication by 70% and ensures consistent data handling across all Lambdas.
+        </div>
+        <div class="mermaid">
+graph LR
+    subgraph "Lambda Functions"
+        L1[Cost Analyzer]
+        L2[Forecaster]
+        L3[Recommender]
+        L4[Notifier]
+    end
+
+    subgraph "Router Layer (Lambda Layer)"
+        R1[CostHistoryRouter<br/>12 methods]
+        R2[CostAnomaliesRouter<br/>12 methods]
+        R3[CostRecommendationsRouter<br/>12 methods]
+    end
+
+    subgraph "Data Layer"
+        D1[(cost_history)]
+        D2[(cost_anomalies)]
+        D3[(cost_recommendations)]
+    end
+
+    L1 --> R1
+    L2 --> R1
+    L3 --> R1
+    L3 --> R3
+    L4 --> R1
+    L4 --> R2
+
+    R1 --> D1
+    R2 --> D2
+    R3 --> D3
+
+    style R1 fill:#146EB4,stroke:#232F3E,stroke-width:2px,color:#fff
+    style R2 fill:#146EB4,stroke:#232F3E,stroke-width:2px,color:#fff
+    style R3 fill:#146EB4,stroke:#232F3E,stroke-width:2px,color:#fff
+    style L1 fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style L2 fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style L3 fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style L4 fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff
+    style D1 fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+    style D2 fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+    style D3 fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+        </div>
+    </div>
+
+    <!-- Diagram 4: DynamoDB Schema -->
+    <div id="dynamodb" class="diagram-container">
+        <h2>4. DynamoDB Schema Design</h2>
+        <div class="description">
+            <strong>Design:</strong> Optimized for time-series queries with service-level granularity. Single-table design with GSI for efficient access patterns and automatic TTL cleanup.
+        </div>
+        <div class="mermaid">
+graph TD
+    subgraph "cost_history Table"
+        H1[PK: SERVICE#service_name]
+        H2[SK: DATE#YYYY-MM-DD]
+        H3[Attributes: cost, unit, region, timestamp]
+        H4[TTL: 90 days]
+        H5[GSI: date-service-index]
+    end
+
+    subgraph "cost_anomalies Table"
+        A1[PK: ANOMALY#type]
+        A2[SK: DATE#YYYY-MM-DD#service]
+        A3[Attributes: severity, threshold, actual_cost]
+        A4[TTL: 30 days]
+    end
+
+    subgraph "cost_recommendations Table"
+        R1[PK: RECOMMENDATION#type]
+        R2[SK: DATE#YYYY-MM-DD]
+        R3[Attributes: priority, impact, description, roi]
+        R4[TTL: 60 days]
+    end
+
+    H1 --> H2
+    H2 --> H3
+    H3 --> H4
+    H4 --> H5
+
+    A1 --> A2
+    A2 --> A3
+    A3 --> A4
+
+    R1 --> R2
+    R2 --> R3
+    R3 --> R4
+
+    style H1 fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+    style A1 fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+    style R1 fill:#4053D6,stroke:#232F3E,stroke-width:2px,color:#fff
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            },
+            sequence: {
+                useMaxWidth: true,
+                wrap: true
+            }
+        });
+    </script>
+</body>
+</html>

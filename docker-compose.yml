@@ -1,0 +1,143 @@
+# Docker Compose for CloudCost Guardian
+# Runs all Lambda functions locally with LocalStack for AWS service emulation
+
+version: '3.8'
+
+services:
+  # LocalStack - Local AWS cloud emulator
+  localstack:
+    image: localstack/localstack:latest
+    container_name: cloudcost-localstack
+    ports:
+      - "4566:4566"  # LocalStack edge port
+      - "4571:4571"  # DynamoDB port
+    environment:
+      - SERVICES=dynamodb,lambda,s3,sns,events,logs,ce  # Cost Explorer
+      - DEBUG=1
+      - LAMBDA_EXECUTOR=docker-reuse
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init-aws.sh"
+    networks:
+      - cloudcost-network
+
+  # Cost Analyzer Lambda
+  cost-analyzer:
+    build:
+      context: .
+      target: cost-analyzer
+    container_name: cloudcost-cost-analyzer
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+      - COST_HISTORY_TABLE=cost_history
+      - ENVIRONMENT=dev
+    depends_on:
+      - localstack
+    networks:
+      - cloudcost-network
+
+  # Forecaster Lambda
+  forecaster:
+    build:
+      context: .
+      target: forecaster
+    container_name: cloudcost-forecaster
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+      - COST_HISTORY_TABLE=cost_history
+      - ENVIRONMENT=dev
+    depends_on:
+      - localstack
+    networks:
+      - cloudcost-network
+
+  # Recommender Lambda
+  recommender:
+    build:
+      context: .
+      target: recommender
+    container_name: cloudcost-recommender
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+      - COST_HISTORY_TABLE=cost_history
+      - COST_RECOMMENDATIONS_TABLE=cost_recommendations
+      - ENVIRONMENT=dev
+    depends_on:
+      - localstack
+    networks:
+      - cloudcost-network
+
+  # Notifier Lambda
+  notifier:
+    build:
+      context: .
+      target: notifier
+    container_name: cloudcost-notifier
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+      - COST_ANOMALIES_TABLE=cost_anomalies
+      - SNS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:cost-alerts
+      - ENVIRONMENT=dev
+    depends_on:
+      - localstack
+    networks:
+      - cloudcost-network
+
+  # Dashboard - Frontend visualization
+  dashboard:
+    image: nginx:alpine
+    container_name: cloudcost-dashboard
+    ports:
+      - "8080:80"
+    volumes:
+      - ./src/dashboard:/usr/share/nginx/html:ro
+    networks:
+      - cloudcost-network
+
+  # Testing environment
+  test-runner:
+    build:
+      context: .
+      target: local-testing
+    container_name: cloudcost-test-runner
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - PYTHONPATH=/var/task:/var/task/src
+    volumes:
+      - .:/var/task
+      - ./tests:/var/task/tests
+    depends_on:
+      - localstack
+    networks:
+      - cloudcost-network
+    command: pytest tests/ -v --cov=src --cov-report=term-missing
+
+networks:
+  cloudcost-network:
+    driver: bridge
+
+volumes:
+  localstack-data:

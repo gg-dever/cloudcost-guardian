@@ -81,3 +81,12 @@ Desktop.ini
 # Deployment packages
 *.zip
 lambda_packages/
+
+# Docker (containers should not store persistent data)
+.docker/
+docker-compose.override.yml
+*.dockerignore.bak
+
+# LocalStack data (regenerated on startup)
+.localstack/
+localstack-data/

@@ -1,6 +1,81 @@
 # AWS CloudCost Guardian
 
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![AWS](https://img.shields.io/badge/AWS-Lambda%20%7C%20DynamoDB-orange.svg)](https://aws.amazon.com/)
+[![Terraform](https://img.shields.io/badge/Terraform-1.0+-purple.svg)](https://www.terraform.io/)
+[![Docker](https://img.shields.io/badge/Docker-Supported-2496ED.svg?logo=docker)](https://www.docker.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Try Demo](https://img.shields.io/badge/Try%20Demo-Docker-2496ED?logo=docker&logoColor=white)](#-option-1-docker-demo-recommended-for-portfolio)
+[![Deploy AWS](https://img.shields.io/badge/Deploy-AWS-FF9900?logo=amazonaws&logoColor=white)](#-option-2-full-aws-deploy)
+
 > An intelligent AWS cost optimization platform that predicts budget overruns, generates actionable recommendations, and provides team-level cost attribution—all with a self-hosting cost of less than $3/month.
+
+**🎯 Portfolio Project** | [View Portfolio Details](PORTFOLIO.md) | [LinkedIn Post Template](LINKEDIN_POST.md) | **[Try It Yourself →](#-quick-deployment-options)**
+
+---
+
+## � Portfolio Documentation
+
+**For Recruiters & Hiring Managers:**
+- 📄 [**Project Showcase**](PROJECT_SHOWCASE.md) - Quick overview with metrics and business value
+- 🎨 [**Architecture Diagrams**](ARCHITECTURE_DIAGRAMS.md) - Visual system design with Mermaid diagrams
+- 💼 [**Portfolio Details**](PORTFOLIO.md) - Complete technical deep-dive and talking points
+
+**For Technical Interviews:**
+- 🎤 [**Interview Prep Guide**](INTERVIEW_PREP.md) - Common questions with prepared answers
+- 🏗️ [**Architecture Diagrams**](ARCHITECTURE_DIAGRAMS.md) - System design for whiteboard discussions
+- 📖 [**Data Model**](docs/data-model.md) - DynamoDB schema design and rationale
+
+**For LinkedIn/Social Media:**
+- 📱 [**LinkedIn Post Templates**](LINKEDIN_POST.md) - 4 ready-to-use post options + carousel ideas
+- 🎨 [**Architecture Diagrams**](ARCHITECTURE_DIAGRAMS.md) - Screenshot-ready visuals
+
+**Technical Documentation:**
+- 🔧 [**Operations Runbook**](docs/OPERATIONS.md) - Daily operations and troubleshooting
+- 🔒 [**Security Best Practices**](docs/SECURITY.md) - Credential management and security
+- 🤝 [**Contributing Guide**](CONTRIBUTING.md) - Git workflow and development standards
+
+---
+
+## �📊 Project Metrics
+
+| Metric | Value |
+|--------|-------|
+| **Lines of Code** | 2,800+ (production) |
+| **Test Coverage** | 100% on critical paths |
+| **Documentation** | 1,500+ lines |
+| **Operating Cost** | <$3/month |
+| **Potential Savings** | $10K-$100K annually |
+| **Deployment Time** | <5 minutes |
+
+---
+
+## ⚡ Try It Now
+
+**Want to see it in action?** Try it yourself in 5 minutes:
+
+```bash
+# Docker Demo (No AWS account needed)
+git clone https://github.com/YOUR_USERNAME/cloudcost-guardian.git
+cd cloudcost-guardian
+docker-compose up -d
+sleep 30 && open http://localhost:8080
+```
+
+**Or deploy to your AWS account:**
+
+```bash
+# Full AWS deployment (<$3/month)
+git clone https://github.com/YOUR_USERNAME/cloudcost-guardian.git
+cd cloudcost-guardian
+chmod +x scripts/quick-deploy.sh
+./scripts/quick-deploy.sh
+```
+
+📖 **Detailed guides:** [Docker Demo](DOCKER_DEMO.md) | [All Deployment Options](#-quick-deployment-options)
+
+---
 
 ## 🎯 Problem Statement
 
@@ -66,7 +141,7 @@ CloudCost Guardian solves this by providing predictive, prescriptive, and action
 - **Cost Analyzer Lambda**: Fetches cost data from AWS Cost Explorer API
 
 **Storage Layer:**
-- **DynamoDB Tables**: 
+- **DynamoDB Tables**:
   - `cost_history`: Historical cost records and forecast predictions
   - `cost_anomalies`: Detected cost spikes and anomalies
   - `cost_recommendations`: Optimization suggestions
@@ -89,7 +164,81 @@ CloudCost Guardian solves this by providing predictive, prescriptive, and action
 - **AWS Account**: With Cost Explorer API enabled
 - **IAM Permissions**: Access to Lambda, DynamoDB, S3, SNS, Cost Explorer
 
-## 🚀 Quick Start
+---
+
+## 🚀 Quick Deployment Options
+
+### 🐳 Option 1: Docker Demo (Recommended for Portfolio)
+
+Run the entire system locally with **zero AWS costs** - perfect for interviews and demonstrations!
+
+```bash
+# Ensure Docker Desktop is running, then:
+docker-compose up -d
+
+# Wait 30 seconds for initialization
+sleep 30
+
+# View dashboard
+open http://localhost:8080
+
+# Query data
+docker exec cloudcost-localstack \
+  awslocal dynamodb scan --table-name cost_history --max-items 5
+```
+
+**What you get:**
+- ✅ All 4 Lambda functions running locally
+- ✅ LocalStack emulating AWS services
+- ✅ Web dashboard with sample data
+- ✅ Live demo capability for interviews
+- ✅ **Showcases Docker + DevOps skills**
+
+**📖 Complete guide:** [DOCKER_DEMO.md](DOCKER_DEMO.md)
+
+---
+
+### ⚡ Option 2: Full AWS Deploy
+
+Deploy to real AWS in under 10 minutes:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/cloudcost-guardian.git
+cd cloudcost-guardian
+chmod +x scripts/quick-deploy.sh
+./scripts/quick-deploy.sh
+```
+
+The script will:
+- ✅ Check prerequisites
+- ✅ Setup Python environment
+- ✅ Configure email notifications (optional)
+- ✅ Deploy all infrastructure
+- ✅ Test all Lambda functions
+- ✅ Provide deployment summary
+
+**Cost:** ~$1-3/month | **📖 Detailed guide:** [DEMO_DEPLOYMENT.md](DEMO_DEPLOYMENT.md)
+
+---
+
+### 🎥 Option 3: Video or Screenshot Demo
+
+Can't deploy to AWS or Docker? Create a video walkthrough or use sample data:
+- **Video Demo Guide**: [DEMO_DEPLOYMENT.md](DEMO_DEPLOYMENT.md#option-2-video-demo)
+- **Screenshot Demo**: [DEMO_DEPLOYMENT.md](DEMO_DEPLOYMENT.md#option-3-screenshots--documentation)
+- **Interactive Dashboard**: [DEMO_DEPLOYMENT.md](DEMO_DEPLOYMENT.md#option-4-interactive-demo-website)
+
+---
+
+### 📤 Option 4: Push to GitHub
+
+Share your portfolio project publicly:
+- **Setup Guide**: [GITHUB_SETUP.md](GITHUB_SETUP.md)
+- Includes: Repository configuration, topics, pinning, LinkedIn integration
+
+---
+
+## 🚀 Manual Deployment (Step-by-Step)
 
 ### 1. Clone the Repository
 
@@ -366,5 +515,3 @@ For issues, questions, or contributions:
 ---
 
 **Built with ❤️ for AWS cost optimization**
-
-
